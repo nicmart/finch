@@ -35,30 +35,6 @@ import org.jboss.netty.handler.codec.http.multipart.{HttpPostRequestDecoder, Att
 import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
 
-package request {
-
-  /**
-   * Trait with low-priority implicits to avoid conflicts that would arise from adding implicits that would work with
-   * any type in the same scope as implicits for concrete types.
-   *
-   * Implicits defined in super-types have lower priority than those defined in a sub-type. Therefore we define low-
-   * priority implicits here and mix this trait into the package object.
-   */
-  trait LowPriorityImplicits {
-
-    /**
-     * Creates a [[io.finch.request.DecodeMagnet DecodeMagnet]] from
-     * [[io.finch.request.DecodeAnyRequest DecodeAnyRequest]].
-     */
-    implicit def magnetFromAnyDecode[A](implicit d: DecodeAnyRequest, tag: ClassTag[A]): DecodeMagnet[A] =
-      new DecodeMagnet[A] {
-        def apply(): DecodeRequest[A] = new DecodeRequest[A] {
-          def apply(req: String): Try[A] = d(req)(tag)
-        }
-      }
-  }
-}
-
 /**
  * This package introduces types and functions that enable _request processing_ in Finch. The [[io.finch.request]]
  * primitives allow both to _read_ the various request items (''query string param'', ''header'' and ''cookie'') using
@@ -93,7 +69,7 @@ package request {
  *     }
  * }}}
  */
-package object request extends LowPriorityImplicits {
+package object request extends LowPriorityRequestReaderImplicits {
 
   /**
     * A type alias for a [[org.jboss.netty.handler.codec.http.multipart.FileUpload]]
@@ -245,6 +221,83 @@ package object request extends LowPriorityImplicits {
   implicit def toOptionalInlineRule[A](fn: A => Boolean): Option[A] => Boolean = {
     case Some(value) => fn(value)
     case None => true
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of two arguments.
+   */
+  implicit class RrArrow2[A, B](val rr: RequestReader[A ~ B]) extends AnyVal {
+    def ~~>[C](fn: (A, B) => Future[C]): RequestReader[C] =
+      rr.embedFlatMap { case (a ~ b) => fn(a, b) }
+
+    def ~>[C](fn: (A, B) => C): RequestReader[C] =
+      rr.map { case (a ~ b) => fn(a, b) }
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of three arguments.
+   */
+  implicit class RrArrow3[A, B, C](val rr: RequestReader[A ~ B ~ C]) extends AnyVal {
+    def ~~>[D](fn: (A, B, C) => Future[D]): RequestReader[D] =
+      rr.embedFlatMap { case (a ~ b ~ c) => fn(a, b, c) }
+
+    def ~>[D](fn: (A, B, C) => D): RequestReader[D] =
+      rr.map { case (a ~ b ~ c) => fn(a, b, c) }
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of four arguments.
+   */
+  implicit class RrArrow4[A, B, C, D](val rr: RequestReader[A ~ B ~ C ~ D]) extends AnyVal {
+    def ~~>[E](fn: (A, B, C, D) => Future[E]): RequestReader[E] =
+      rr.embedFlatMap { case (a ~ b ~ c ~ d) => fn(a, b, c, d) }
+
+    def ~>[E](fn: (A, B, C, D) => E): RequestReader[E] =
+      rr.map { case (a ~ b ~ c ~ d) => fn(a, b, c, d) }
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of five arguments.
+   */
+  implicit class RrArrow5[A, B, C, D, E](val rr: RequestReader[A ~ B ~ C ~ D ~ E]) extends AnyVal {
+    def ~~>[F](fn: (A, B, C, D, E) => Future[F]): RequestReader[F] =
+      rr.embedFlatMap { case (a ~ b ~ c ~ d ~ e) => fn(a, b, c, d, e) }
+
+    def ~>[F](fn: (A, B, C, D, E) => F): RequestReader[F] =
+      rr.map { case (a ~ b ~ c ~ d ~ e) => fn(a, b, c, d, e) }
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of six arguments.
+   */
+  implicit class RrArrow6[A, B, C, D, E, F](val rr: RequestReader[A ~ B ~ C ~ D ~ E ~ F]) extends AnyVal {
+    def ~~>[G](fn: (A, B, C, D, E, F) => Future[G]): RequestReader[G] =
+      rr.embedFlatMap { case (a ~ b ~ c ~ d ~ e ~ f) => fn(a, b, c, d, e, f) }
+
+    def ~>[G](fn: (A, B, C, D, E, F) => G): RequestReader[G] =
+      rr.map { case (a ~ b ~ c ~ d ~ e ~ f) => fn(a, b, c, d, e, f) }
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of seven arguments.
+   */
+  implicit class RrArrow7[A, B, C, D, E, F, G](val rr: RequestReader[A ~ B ~ C ~ D ~ E ~ F ~ G]) extends AnyVal {
+    def ~~>[H](fn: (A, B, C, D, E, F, G) => Future[H]): RequestReader[H] =
+      rr.embedFlatMap { case (a ~ b ~ c ~ d ~ e ~ f ~ g) => fn(a, b, c, d, e, f, g) }
+
+    def ~>[H](fn: (A, B, C, D, E, F, G) => H): RequestReader[H] =
+      rr.map { case (a ~ b ~ c ~ d ~ e ~ f ~ g) => fn(a, b, c, d, e, f, g) }
+  }
+
+  /**
+   * Adds a `~>` and `~~>` compositors to `RequestReader` to compose it with function of eight arguments.
+   */
+  implicit class RrArrow8[A, B, C, D, E, F, G, H](val rr: RequestReader[A ~ B ~ C ~ D ~ E ~ F ~ G ~ H]) extends AnyVal {
+    def ~~>[I](fn: (A, B, C, D, E, F, G, H) => Future[I]): RequestReader[I] =
+      rr.embedFlatMap { case (a ~ b ~ c ~ d ~ e ~ f ~ g ~ h) => fn(a, b, c, d, e, f, g, h) }
+
+    def ~>[I](fn: (A, B, C, D, E, F, G, H) => I): RequestReader[I] =
+      rr.map { case (a ~ b ~ c ~ d ~ e ~ f ~ g ~ h) => fn(a, b, c, d, e, f, g, h) }
   }
 
   // Helper functions.

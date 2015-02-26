@@ -1,12 +1,15 @@
 package io.finch.playgorund
 
-import com.twitter.finagle.{Httpx, Service, Filter}
-import com.twitter.util.{Await, Future}
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
+import com.twitter.finagle.Httpx
+import com.twitter.util.Await
 
 import io.finch.{Endpoint => _, _}
+import io.finch.micro._
 import io.finch.request._
-import io.finch.route._
-import io.finch.response._
+import io.finch.route.{Endpoint => _, _}
+import io.finch.jackson._
 
 /**
  * GET /user/groups        -> Seq[Group]
@@ -15,69 +18,39 @@ import io.finch.response._
  */
 object Main extends App {
 
+  // enable finch-jackson magic
+  implicit val objectMapper: ObjectMapper = new ObjectMapper().registerModule(DefaultScalaModule)
+
   // model
   case class Group(name: String, ownerId: Int = 0)
   case class User(id: Int, groups: Seq[Group])
 
-  // custom request
-  case class AuthReq(http: HttpRequest, userId: Int)
-  implicit val authReqEv: AuthReq => HttpRequest = _.http
+  case class UnknownUser(id: Int) extends Exception(s"Unknown user with id=$id")
 
-  // GET /user/groups -> Seq[Group]
-  def getUserGroups(userId: Int): Future[Seq[Group]] = Seq(Group("foo"), Group("bar")).toFuture
-
-  // POST /groups?name=foo -> Group
-  def postGroup(name: String, ownerId: Int): Future[Group] = Group(name, ownerId).toFuture
-
-  // PUT /user/groups/:group -> User
-  def putUserGroup(userId: Int, group: String): Future[User] = User(userId, Seq.empty[Group]).toFuture
-
-  implicit val encodeGroup: EncodeResponse[Group] =
-    EncodeResponse[Group]("application/json") { g =>
-      s"""
-        |{"name":"$${g.name}","owner":$${g.ownerId}}
-      """.stripMargin
+  val currentUser: Micro[Int] = OptionalHeader("X-User-Id") ~~> { id =>
+    id.getOrElse("0").toInt match {
+      case i @ (1 | 2 | 3) => i.toFuture
+      case i => UnknownUser(i).toFutureException
     }
-
-  implicit def encodeUser(implicit e: EncodeResponse[Group]): EncodeResponse[User] =
-    EncodeResponse[User]("application/json") { u =>
-      s"""
-        |{"id":$${u.id},"groups":[$${encodeSeq(e(u.groups))}]}
-      """.stripMargin
-    }
-
-  implicit def encodeSeq[A](implicit encode: EncodeResponse[A]): EncodeResponse[Seq[A]] =
-    EncodeResponse[Seq[A]]("application/json") { seq =>
-      seq.map(encode(_)).mkString("[", ",", "]")
-    }
-
-  def service[Req, Rep](f: Req => Future[Rep]): Service[Req, Rep] = Service.mk(f)
-
-  val endpoint: Endpoint[AuthReq, HttpResponse] = (
-    Get / "user" / "groups" /> service[AuthReq, HttpResponse] { req =>
-      getUserGroups(req.userId).map(Ok(_))
-    }
-  ) | (
-    Post / "groups" /> service[AuthReq, HttpResponse] { req =>
-      RequiredParam("group").embedFlatMap(postGroup(_, req.userId)).map(Ok(_))(req)
-    }
-  ) | (
-    Put / "user" / "groups" / string /> { group =>
-      service[AuthReq, HttpResponse] { req =>
-        putUserGroup(req.userId, group).map(Ok(_))
-      }
-    }
-  )
-
-  val authorize = new Filter[HttpRequest, HttpResponse, AuthReq, HttpResponse] {
-    def apply(req: HttpRequest, service: Service[AuthReq, HttpResponse]): Future[HttpResponse] = for {
-      id <- OptionalHeader("X-User-Id")(req)
-      rep <- service(AuthReq(req, id.getOrElse("0").toInt))
-    } yield rep
   }
 
-  val api: Service[HttpRequest, HttpResponse] =
-    authorize andThen (endpoint: Service[AuthReq, HttpResponse])
+  // GET /user/groups -> Seq[Group]
+  val getUserGroups: Micro[Seq[Group]] =
+    currentUser ~> { userId => Seq(Group("foo", userId), Group("bar", userId)) }
+
+  // POST /groups?name=foo -> Group
+  val postGroup: Micro[Group] =
+    RequiredParam("name") ~ currentUser ~> Group
+
+  // PUT /user/groups/:group -> User
+  def putUserGroup(group: String): Micro[User] =
+    currentUser ~> { User(_, Seq.empty[Group]) }
+
+  // an API endpoint
+  val api: Endpoint =
+    Get / "user" / "groups" /> getUserGroups |
+    Post / "groups" /> postGroup |
+    Put / "user" / "groups" / string /> putUserGroup
 
   Await.ready(Httpx.serve(":8081", api))
 }
